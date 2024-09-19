@@ -37,20 +37,21 @@ class SimpleTrainer2d:
         self.save_imgs = args.save_imgs
         self.log_dir = Path(f"./checkpoints/{args.data_name}/{model_name}_{args.iterations}_{num_points}/{self.image_name}")
         
-        if model_name == "GaussianImage_Cholesky":
-            from gaussianimage_cholesky import GaussianImage_Cholesky
-            self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False).to(self.device)
+        # TODO: consider at later poing
+        # if model_name == "GaussianImage_Cholesky":
+        #     from gaussianimage_cholesky import GaussianImage_Cholesky
+        #     self.gaussian_model = GaussianImage_Cholesky(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
+        #         device=self.device, lr=args.lr, quantize=False).to(self.device)
 
-        elif model_name == "GaussianImage_RS":
-            from gaussianimage_rs import GaussianImage_RS
-            self.gaussian_model = GaussianImage_RS(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, lr=args.lr, quantize=False).to(self.device) 
+        from gaussianimage_rs import GaussianImage_RS
+        self.gaussian_model = GaussianImage_RS(loss_type="L2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
+                                               device=self.device, lr=args.lr, quantize=False).to(self.device) 
 
-        elif model_name == "3DGS":
-            from gaussiansplatting_3d import Gaussian3D
-            self.gaussian_model = Gaussian3D(loss_type="Fusion2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
-                device=self.device, sh_degree=args.sh_degree, lr=args.lr).to(self.device)
+        ## TODO: Erase 3D
+        # elif model_name == "3DGS":
+        #     from gaussiansplatting_3d import Gaussian3D
+        #     self.gaussian_model = Gaussian3D(loss_type="Fusion2", opt_type="adan", num_points=self.num_points, H=self.H, W=self.W, BLOCK_H=BLOCK_H, BLOCK_W=BLOCK_W, 
+        #         device=self.device, sh_degree=args.sh_degree, lr=args.lr).to(self.device)
 
         self.logwriter = LogWriter(self.log_dir)
 
