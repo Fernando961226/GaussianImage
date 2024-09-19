@@ -25,7 +25,7 @@ class GaussianImage_RS(nn.Module):
 
         self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
         self._scaling = nn.Parameter(torch.rand(self.init_num_points, 2))
-        self.register_buffer('_opacity', torch.ones((self.init_num_points, 1)))
+        self.register_buffer('_opacity', torch.ones((self.init_num_points, 1))) ## TODO: need to be change to allow be a parameter
         self._rotation = nn.Parameter(torch.rand(self.init_num_points, 1))
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))
 
@@ -35,6 +35,7 @@ class GaussianImage_RS(nn.Module):
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
         self.quantize = kwargs["quantize"]
 
+        # TODO: Remove quantize
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
             self.features_dc_quantizer = VectorQuantizer(codebook_dim=3, codebook_size=8, num_quantizers=2, vector_type="vector", kmeans_iters=5) 
