@@ -13,9 +13,11 @@ class GaussianImage_RS(nn.Module):
     def __init__(self, loss_type="L2", **kwargs):
         super().__init__()
         self.loss_type = loss_type
+        # Initial number of gaussians
         self.init_num_points = kwargs["num_points"]
         self.H, self.W = kwargs["H"], kwargs["W"]
         self.BLOCK_W, self.BLOCK_H = kwargs["BLOCK_W"], kwargs["BLOCK_H"]
+        # Calculate the number of tiles in the image for efficient rendering
         self.tile_bounds = (
             (self.W + self.BLOCK_W - 1) // self.BLOCK_W,
             (self.H + self.BLOCK_H - 1) // self.BLOCK_H,
@@ -23,25 +25,36 @@ class GaussianImage_RS(nn.Module):
         ) # 
         self.device = kwargs["device"]
 
+        # Initialize Gaussian parameters
+        # Use atanh for xyz to allow unconstrained optimization while keeping values in [-1, 1]
         self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
+        # Scale factors along the x and y axes
         self._scaling = nn.Parameter(torch.rand(self.init_num_points, 2))
-        self.register_buffer('_opacity', torch.ones((self.init_num_points, 1))) ## TODO: need to be change to allow be a parameter
+        # Opacity is fixed to 1 for all Gaussians in this implementation
+        self._opacity = nn.Parameter(torch.atanh(0.8*torch.ones((self.init_num_points, 1))))
+        # self.register_buffer('_opacity', torch.ones((self.init_num_points, 1))) ## TODO(fernando): need to be change to allow be a parameter
         self._rotation = nn.Parameter(torch.rand(self.init_num_points, 1))
+        
+        # Contains the colors for each point
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))
 
         self.last_size = (self.H, self.W)
+
+        # Set background color to white
         self.background = torch.ones(3, device=self.device)
         self.rotation_activation = torch.sigmoid
+        # Define the bounds for scaling to prevent degenerate Gaussians
         self.register_buffer('bound', torch.tensor([0.5, 0.5]).view(1, 2))
         self.quantize = kwargs["quantize"]
 
-        # TODO: Remove quantize
+        # Initialize quantizers for compression if enabled
         if self.quantize:
             self.xyz_quantizer = FakeQuantizationHalf.apply 
             self.features_dc_quantizer = VectorQuantizer(codebook_dim=3, codebook_size=8, num_quantizers=2, vector_type="vector", kmeans_iters=5) 
             self.scaling_quantizer = UniformQuantizer(signed=False, bits=6, learned=True, num_channels=2) 
             self.rotation_quantizer = UniformQuantizer(signed=False, bits=6, learned=True, num_channels=1)
 
+        # Set up optimizer and learning rate scheduler
         if kwargs["opt_type"] == "adam":
             self.optimizer = torch.optim.Adam(self.parameters(), lr=kwargs["lr"])
         else:
@@ -49,23 +62,28 @@ class GaussianImage_RS(nn.Module):
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=20000, gamma=0.5)
 
     def _init_data(self):
+        # Initialize quantizer data (if used)
         self.scaling_quantizer._init_data(self._scaling)
         self.rotation_quantizer._init_data(self.get_rotation)
 
     @property
     def get_scaling(self):
+        # Ensure scaling is positive and within bounds
         return torch.abs(self._scaling+self.bound)
     
     @property
     def get_rotation(self):
+        # Convert rotation to [0, 2π] range
         return self.rotation_activation(self._rotation)*2*math.pi
     
     @property
     def get_xyz(self):
+        # Convert xyz from unconstrained space to [-1, 1]
         return torch.tanh(self._xyz)
     
     @property
     def get_features(self):
+        # Returns the color features
         return self._features_dc
     
     @property
@@ -73,29 +91,41 @@ class GaussianImage_RS(nn.Module):
         return self._opacity 
     
     def forward(self):
+        # Project 2D Gaussians onto the image plane
         self.xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d_scale_rot(self.get_xyz, self.get_scaling, self.get_rotation, self.H, self.W, self.tile_bounds)
+        
+        # Rasterize Gaussians to form the final image
+        # TODO(snair): Modify for negative opacity
         out_img = rasterize_gaussians_sum(self.xys, depths, self.radii, conics, num_tiles_hit,
                 self.get_features, self.get_opacity, self.H, self.W, self.BLOCK_H, self.BLOCK_W, background=self.background, return_alpha=False)
+        
+        # Ensure output is in [0, 1] range and reshape to standard image format
         out_img = torch.clamp(out_img, 0, 1) #[H, W, 3]
         out_img = out_img.view(-1, self.H, self.W, 3).permute(0, 3, 1, 2).contiguous()
         return {"render": out_img}
 
     def train_iter(self, gt_image):
+        # Perform one training iteration
         render_pkg = self.forward()
         image = render_pkg["render"]
 
+        # Compute loss between rendered image and ground truth
         loss = loss_fn(image, gt_image, self.loss_type, lambda_value=0.7)
         loss.backward()
+
+        # Compute PSNR for monitoring
         with torch.no_grad():
             mse_loss = F.mse_loss(image, gt_image)
             psnr = 10 * math.log10(1.0 / mse_loss.item())
 
+        # Update model parameters
         self.optimizer.step()
         self.optimizer.zero_grad(set_to_none = True)
         self.scheduler.step()
         return loss, psnr
 
     def forward_quantize(self):
+        # Similar to forward, but with quantization applied to Gaussian parameters
         l_vqm, m_bit = 0, 16*self.init_num_points*2
         means = torch.tanh(self.xyz_quantizer(self._xyz))
         scaling, l_vqs, s_bit = self.scaling_quantizer(self._scaling)
@@ -124,6 +154,7 @@ class GaussianImage_RS(nn.Module):
         return loss, psnr
 
     def compress_wo_ec(self):
+        # Compress Gaussian parameters without entropy coding
         means = torch.tanh(self.xyz_quantizer(self._xyz))
         quant_scaling, _ = self.scaling_quantizer.compress(self._scaling)
         quant_rotation, _ = self.rotation_quantizer.compress(self.get_rotation)
@@ -131,6 +162,7 @@ class GaussianImage_RS(nn.Module):
         return {"xyz":self._xyz.half(), "feature_dc_index": feature_dc_index, "quant_scaling": quant_scaling, "quant_rotation": quant_rotation}
 
     def decompress_wo_ec(self, encoding_dict):
+        # Decompress and render from compressed representation
         xyz, quant_scaling, quant_rotation = encoding_dict["xyz"], encoding_dict["quant_scaling"], encoding_dict["quant_rotation"]
         feature_dc_index = encoding_dict["feature_dc_index"]
         means = torch.tanh(xyz.float())
@@ -146,6 +178,7 @@ class GaussianImage_RS(nn.Module):
         return {"render":out_img}
     
     def analysis_wo_ec(self, encoding_dict):
+        # Analyze compression performance without entropy coding
         quant_scaling, quant_rotation, feature_dc_index = encoding_dict["quant_scaling"], encoding_dict["quant_rotation"], encoding_dict["feature_dc_index"]
 
         total_bits = 0
