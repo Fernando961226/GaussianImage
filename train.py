@@ -13,6 +13,7 @@ from utils import *
 from tqdm import tqdm
 import random
 import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
 
 class SimpleTrainer2d:
     """Trains random 2d gaussians to fit an image."""
@@ -63,23 +64,34 @@ class SimpleTrainer2d:
             model_dict.update(pretrained_dict)
             self.gaussian_model.load_state_dict(model_dict)
 
-    def train(self):     
+    def train(self):
         psnr_list, iter_list = [], []
         progress_bar = tqdm(range(1, self.iterations+1), desc="Training progress")
         best_psnr = 0
         self.gaussian_model.train()
         start_time = time.time()
+        
+        # For logging
+        log_interval = 10000
+        
         for iter in range(1, self.iterations+1):
             loss, psnr = self.gaussian_model.train_iter(self.gt_image)
             psnr_list.append(psnr)
             iter_list.append(iter)
+            
             with torch.no_grad():
                 if iter % 10 == 0:
                     progress_bar.set_postfix({f"Loss":f"{loss.item():.{7}f}", "PSNR":f"{psnr:.{4}f},"})
                     progress_bar.update(10)
+                
+                if iter % log_interval == 0:
+                    self.log_gaussian_stats(iter)
+                    self.visualize_gaussians(iter)
+        
         end_time = time.time() - start_time
         progress_bar.close()
         psnr_value, ms_ssim_value = self.test()
+        
         with torch.no_grad():
             self.gaussian_model.eval()
             test_start_time = time.time()
@@ -92,6 +104,53 @@ class SimpleTrainer2d:
         np.save(self.log_dir / "training.npy", {"iterations": iter_list, "training_psnr": psnr_list, "training_time": end_time, 
         "psnr": psnr_value, "ms-ssim": ms_ssim_value, "rendering_time": test_end_time, "rendering_fps": 1/test_end_time})
         return psnr_value, ms_ssim_value, end_time, test_end_time, 1/test_end_time
+
+    def log_gaussian_stats(self, iteration):
+        stats = self.gaussian_model.get_gaussian_stats()
+        self.logwriter.write(f"Iteration {iteration}:")
+        self.logwriter.write(f"  Total Gaussians: {stats['num_gaussians']}")
+        self.logwriter.write(f"  Positive Gaussians: {stats['num_positive']}")
+        self.logwriter.write(f"  Negative Gaussians: {stats['num_negative']}")
+        
+        plt.figure(figsize=(10, 5))
+        plt.hist(stats['opacities'], bins=50, range=(-1, 1))
+        plt.title(f"Opacity Distribution at Iteration {iteration}")
+        plt.xlabel("Opacity")
+        plt.ylabel("Count")
+        plt.savefig(self.log_dir / f"opacity_histogram_{iteration}.png")
+        plt.close()
+
+    def visualize_gaussians(self, iteration):
+        xys, opacities = self.gaussian_model.visualize_gaussians()
+        
+        # Plot all Gaussians
+        plt.figure(figsize=(10, 10))
+        plt.scatter(xys[:, 0], xys[:, 1], c=opacities, cmap='coolwarm', s=10, vmin=-1, vmax=1)
+        plt.colorbar(label='Opacity')
+        plt.title(f"All Gaussian Positions and Opacities at Iteration {iteration}")
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.savefig(self.log_dir / f"gaussian_visualization_all_{iteration}.png")
+        plt.close()
+
+        # Plot only negative Gaussians
+        negative_mask = opacities < 0
+        negative_xys = xys[negative_mask]
+        negative_opacities = opacities[negative_mask]
+        
+        plt.figure(figsize=(10, 10))
+        if negative_xys.size > 0:
+            plt.scatter(negative_xys[:, 0], negative_xys[:, 1], c=negative_opacities, cmap='coolwarm', s=10, vmin=-1, vmax=0)
+            plt.colorbar(label='Opacity')
+        plt.title(f"Negative Gaussian Positions and Opacities at Iteration {iteration}")
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.savefig(self.log_dir / f"gaussian_visualization_negative_{iteration}.png")
+        plt.close()
+
+        # Log the number of negative Gaussians
+        num_negative = negative_xys.shape[0]
+        self.logwriter.write(f"  Number of Negative Gaussians: {num_negative}")
 
     def test(self):
         self.gaussian_model.eval()

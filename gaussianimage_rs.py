@@ -31,7 +31,7 @@ class GaussianImage_RS(nn.Module):
         # Scale factors along the x and y axes
         self._scaling = nn.Parameter(torch.rand(self.init_num_points, 2))
         # Opacity is fixed to 1 for all Gaussians in this implementation
-        self._opacity = nn.Parameter(torch.atanh(0.8*torch.ones((self.init_num_points, 1))))
+        self._opacity = nn.Parameter(torch.atanh(0.5*torch.ones((self.init_num_points, 1))))
         # self.register_buffer('_opacity', torch.ones((self.init_num_points, 1))) ## TODO(fernando): need to be change to allow be a parameter
         self._rotation = nn.Parameter(torch.rand(self.init_num_points, 1))
         
@@ -306,3 +306,19 @@ class GaussianImage_RS(nn.Module):
             "cholesky_bpp": cholesky_bpp, "feature_dc_bpp": feature_dc_bpp, "scaling_bpp": scaling_bpp,
             "rotation_bpp": rotation_bpp}
 
+
+    def get_gaussian_stats(self):
+        opacities = torch.tanh(self._opacity).squeeze()
+        num_positive = (opacities > 0).sum().item()
+        num_negative = (opacities <= 0).sum().item()
+        return {
+            "num_gaussians": self.init_num_points,
+            "num_positive": num_positive,
+            "num_negative": num_negative,
+            "opacities": opacities.cpu().numpy()
+        }
+
+    def visualize_gaussians(self):
+        xys = self.get_xyz.detach().cpu().numpy()
+        opacities = torch.tanh(self._opacity).squeeze().cpu().numpy()
+        return xys, opacities
