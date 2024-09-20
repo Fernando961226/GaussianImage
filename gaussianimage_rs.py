@@ -31,7 +31,8 @@ class GaussianImage_RS(nn.Module):
         # Scale factors along the x and y axes
         self._scaling = nn.Parameter(torch.rand(self.init_num_points, 2))
         # Opacity is fixed to 1 for all Gaussians in this implementation
-        self._opacity = nn.Parameter(torch.atanh(0.5*torch.ones((self.init_num_points, 1))))
+        initial_opacities = torch.rand(self.init_num_points, 1) * 2 - 1  # Range: [-1, 1]
+        self._opacity = nn.Parameter(torch.atanh(initial_opacities))
         # self.register_buffer('_opacity', torch.ones((self.init_num_points, 1))) ## TODO(fernando): need to be change to allow be a parameter
         self._rotation = nn.Parameter(torch.rand(self.init_num_points, 1))
         
