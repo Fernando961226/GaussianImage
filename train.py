@@ -69,6 +69,14 @@ class SimpleTrainer2d:
         best_psnr = 0
         self.gaussian_model.train()
         start_time = time.time()
+        
+        with torch.no_grad():
+            self.log_gaussian_stats(0)
+            self.visualize_gaussians(0)
+
+        # For logging
+        log_interval = 10000
+        
         for iter in range(1, self.iterations+1):
             loss, psnr = self.gaussian_model.train_iter(self.gt_image)
             psnr_list.append(psnr)
@@ -166,7 +174,7 @@ def main(argv):
     psnrs, ms_ssims, training_times, eval_times, eval_fpses = [], [], [], [], []
     image_h, image_w = 0, 0
     if args.data_name == "kodak":
-        image_length, start = 24, 0
+        image_length, start = 1, 0
     elif args.data_name == "DIV2K_valid_LRX2":
         image_length, start = 100, 800
     for i in range(start, start+image_length):

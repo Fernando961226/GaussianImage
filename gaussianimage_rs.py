@@ -25,7 +25,20 @@ class GaussianImage_RS(nn.Module):
 
         self._xyz = nn.Parameter(torch.atanh(2 * (torch.rand(self.init_num_points, 2) - 0.5)))
         self._scaling = nn.Parameter(torch.rand(self.init_num_points, 2))
-        self.register_buffer('_opacity', torch.ones((self.init_num_points, 1))) ## TODO: need to be change to allow be a parameter
+        # Opacity is fixed to 1 for all Gaussians in this implementation
+        #initial_opacities = torch.rand(self.init_num_points, 1) * 2 - 1  # Range: [-1, 1]
+    
+        # initial_opacities = torch.rand(self.init_num_points, 1) * 2 - 1  # Range: [-1, 1]
+        # initial_opacities *= 0.1  
+
+        # initial_opacities_p = torch.ones(int(self.init_num_points/2), 1) * 0.1
+        # initial_opacities_n = torch.ones(int(self.init_num_points/2), 1) * -0.1
+        # initial_opacities = torch.cat((initial_opacities_p, initial_opacities_n), dim=0)
+
+        initial_opacities = torch.ones(int(self.init_num_points), 1) * 0.8
+        print(initial_opacities.shape)
+        self._opacity = nn.Parameter(torch.atanh(initial_opacities))
+        # self.register_buffer('_opacity', torch.ones((self.init_num_points, 1))) ## TODO(fernando): need to be change to allow be a parameter
         self._rotation = nn.Parameter(torch.rand(self.init_num_points, 1))
         self._features_dc = nn.Parameter(torch.rand(self.init_num_points, 3))
 
@@ -70,7 +83,7 @@ class GaussianImage_RS(nn.Module):
     
     @property
     def get_opacity(self):
-        return self._opacity 
+        return torch.tanh(self._opacity) 
     
     def forward(self):
         self.xys, depths, self.radii, conics, num_tiles_hit = project_gaussians_2d_scale_rot(self.get_xyz, self.get_scaling, self.get_rotation, self.H, self.W, self.tile_bounds)

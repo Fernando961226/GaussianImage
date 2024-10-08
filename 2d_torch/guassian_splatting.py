@@ -51,7 +51,7 @@ colour_values.shape, colour_values[:3, ...]
 
 sigma_values = torch.rand(N_SAMPLES, 2, device=device)
 rho_values = 2 * torch.rand(N_SAMPLES, 1, device=device) - 1
-alpha_values = torch.ones(N_SAMPLES, 1, device=device)*0.8
+alpha_values = torch.ones(N_SAMPLES, 1, device=device)*-0.1
 print(alpha_values[:10])
 
 sigma_values = torch.logit(sigma_values)

@@ -1,0 +1,6 @@
+checkpoints/
+dataset/
+*.pyc
+**/__pycache__/
+
+2d_torch/__pycache__/functions.cpython-310.pyc
